@@ -1,0 +1,1117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>财务管家 — Ledger Studio</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💰</text></svg>" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600&family=Manrope:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  body { font-family: 'Manrope', sans-serif; background: #0e0d0b; color: #f5f0e8; margin: 0; }
+  .font-display { font-family: 'Fraunces', serif; }
+  .font-mono { font-family: 'JetBrains Mono', monospace; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-thumb { background: #3a352e; border-radius: 3px; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  .animate-fade-in { animation: fadeIn 0.4s ease-out; }
+  @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+  .animate-slide-up { animation: slideUp 0.3s ease-out; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spin { animation: spin 1s linear infinite; }
+  input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  .grain { position: absolute; inset: 0; pointer-events: none; opacity: 0.04; background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' /%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+/* ============================================================
+   ↓↓↓↓↓ 配置区：把下面两行换成你 Supabase 项目的实际值 ↓↓↓↓↓
+   ============================================================ */
+const SUPABASE_URL = "https://wiqvyunsahuvrhsfumdd.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_Ir4xCBljbDl_PMcgQfv69Q_dYTzCm-i";
+/* ============================================================ */
+
+const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const { useState, useEffect, useMemo, useCallback } = React;
+
+const CURRENCIES = { CNY:{s:"¥"}, USD:{s:"$"}, SGD:{s:"S$"}, EUR:{s:"€"}, JPY:{s:"¥"}, HKD:{s:"HK$"} };
+const ACCOUNT_TYPES = { cash:"现金", bank:"储蓄卡", credit:"信用卡", investment:"投资账户", savings:"储蓄账户" };
+
+const ICONS = {
+  wallet: '<path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/>',
+  up: '<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>',
+  down: '<polyline points="22 17 13.5 8.5 8.5 13.5 2 7"/><polyline points="16 17 22 17 22 11"/>',
+  plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
+  x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  edit: '<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>',
+  trash: '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>',
+  eye: '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>',
+  eyeoff: '<path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/>',
+  home: '<path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
+  receipt: '<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/>',
+  target: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
+  chart: '<path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/>',
+  cog: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+  logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/>',
+  alert: '<circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/>',
+  check: '<polyline points="20 6 9 17 4 12"/>',
+  loader: '<path d="M21 12a9 9 0 1 1-6.219-8.56"/>',
+  swap: '<path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/>',
+  user: '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  sigma: '<path d="M18 7V4H6l6 8-6 8h12v-3"/>',
+};
+
+const I = ({ d, c="w-4 h-4", w=1.8 }) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={w} strokeLinecap="round" strokeLinejoin="round" className={c} dangerouslySetInnerHTML={{__html: d}} />
+);
+
+const today = () => new Date().toISOString().slice(0, 10);
+const monthOf = (d) => d.slice(0, 7);
+const fmt = (n, cur="CNY", hide=false) => hide ? "••••••" : (CURRENCIES[cur]?.s || "¥") + (Number(n)||0).toLocaleString("en-US", {minimumFractionDigits:2, maximumFractionDigits:2});
+const fmtDate = (iso) => new Date(iso).toLocaleDateString("zh-CN", { month:"short", day:"numeric" });
+const fmtFull = (iso) => new Date(iso).toLocaleDateString("zh-CN", { year:"numeric", month:"long", day:"numeric", weekday:"short" });
+
+/* ============== 自制 SVG 图表 ============== */
+
+function MyAreaChart({ data, height=240 }) {
+  if (!data || data.length === 0) return <div style={{height}} className="flex items-center justify-center text-sm text-[#807468]">暂无数据</div>;
+  const W = 600, H = height, P = 35;
+  const maxVal = Math.max(...data.flatMap(d => [d.income||0, d.expense||0]), 1);
+  const xStep = (W - P*2) / Math.max(1, data.length - 1);
+  const pts = (key) => data.map((d,i) => [P + i*xStep, H - P - ((d[key]||0)/maxVal)*(H - P*2)]);
+  const linePath = (key) => pts(key).map((p,i) => `${i===0?'M':'L'}${p[0]},${p[1]}`).join(' ');
+  const areaPath = (key) => `${linePath(key)} L${P+(data.length-1)*xStep},${H-P} L${P},${H-P} Z`;
+  const yLabels = [0, maxVal*0.5, maxVal];
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{height}}>
+      <defs>
+        <linearGradient id="ginc" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#84cc7a" stopOpacity="0.4" />
+          <stop offset="100%" stopColor="#84cc7a" stopOpacity="0" />
+        </linearGradient>
+        <linearGradient id="gexp" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#d47a7a" stopOpacity="0.4" />
+          <stop offset="100%" stopColor="#d47a7a" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      {yLabels.map((v,i) => {
+        const y = H - P - (v/maxVal)*(H - P*2);
+        return <g key={i}>
+          <line x1={P} x2={W-P} y1={y} y2={y} stroke="#2a2620" strokeDasharray="3 3" />
+          <text x={P-8} y={y+4} fill="#807468" fontSize="11" textAnchor="end">{v>=1000?`${(v/1000).toFixed(0)}k`:v.toFixed(0)}</text>
+        </g>;
+      })}
+      <path d={areaPath('income')} fill="url(#ginc)" />
+      <path d={areaPath('expense')} fill="url(#gexp)" />
+      <path d={linePath('income')} fill="none" stroke="#84cc7a" strokeWidth="2" />
+      <path d={linePath('expense')} fill="none" stroke="#d47a7a" strokeWidth="2" />
+      {data.map((d,i) => (
+        <text key={i} x={P + i*xStep} y={H-10} fill="#807468" fontSize="11" textAnchor="middle">{d.month}</text>
+      ))}
+      <g transform={`translate(${W-150},5)`}>
+        <circle cx="6" cy="6" r="4" fill="#84cc7a" />
+        <text x="16" y="10" fill="#a89c8e" fontSize="11">收入</text>
+        <circle cx="60" cy="6" r="4" fill="#d47a7a" />
+        <text x="70" y="10" fill="#a89c8e" fontSize="11">支出</text>
+      </g>
+    </svg>
+  );
+}
+
+function MyPieChart({ data, size=160 }) {
+  if (!data || data.length === 0) return null;
+  const total = data.reduce((s,d) => s+d.value, 0);
+  if (total === 0) return null;
+  const r = size/2 - 4, cx = size/2, cy = size/2, ir = r * 0.55;
+  let angle = -Math.PI/2;
+  return (
+    <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size}>
+      {data.map((d, i) => {
+        const portion = d.value / total;
+        const a2 = angle + portion * Math.PI * 2;
+        const large = portion > 0.5 ? 1 : 0;
+        const x1 = cx + r * Math.cos(angle), y1 = cy + r * Math.sin(angle);
+        const x2 = cx + r * Math.cos(a2), y2 = cy + r * Math.sin(a2);
+        const ix1 = cx + ir * Math.cos(angle), iy1 = cy + ir * Math.sin(angle);
+        const ix2 = cx + ir * Math.cos(a2), iy2 = cy + ir * Math.sin(a2);
+        const path = `M${x1},${y1} A${r},${r} 0 ${large} 1 ${x2},${y2} L${ix2},${iy2} A${ir},${ir} 0 ${large} 0 ${ix1},${iy1} Z`;
+        const result = <path key={i} d={path} fill={d.color} stroke="#13110e" strokeWidth="2" />;
+        angle = a2;
+        return result;
+      })}
+    </svg>
+  );
+}
+
+function MyBarChart({ data, height=240 }) {
+  if (!data || data.length === 0) return null;
+  const W = 600, H = height, P = 35;
+  const maxVal = Math.max(...data.map(d => d.value), 1);
+  const stride = (W - P*2) / data.length;
+  const bw = stride * 0.6;
+  const yLabels = [0, maxVal*0.5, maxVal];
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{height}}>
+      {yLabels.map((v,i) => {
+        const y = H - P - (v/maxVal)*(H - P*2);
+        return <g key={i}>
+          <line x1={P} x2={W-P} y1={y} y2={y} stroke="#2a2620" strokeDasharray="3 3" />
+          <text x={P-8} y={y+4} fill="#807468" fontSize="11" textAnchor="end">{v>=1000?`${(v/1000).toFixed(0)}k`:v.toFixed(0)}</text>
+        </g>;
+      })}
+      {data.map((d,i) => {
+        const x = P + i*stride + (stride-bw)/2;
+        const bh = (d.value/maxVal)*(H - P*2);
+        const y = H - P - bh;
+        return <g key={i}>
+          <rect x={x} y={y} width={bw} height={bh} fill="#d4a574" rx="3" />
+          <text x={x+bw/2} y={H-10} fill="#807468" fontSize="11" textAnchor="middle">{d.day}</text>
+        </g>;
+      })}
+    </svg>
+  );
+}
+
+/* ============== 主应用 ============== */
+function App() {
+  const [session, setSession] = useState(null);
+  const [ready, setReady] = useState(false);
+  const [configError, setConfigError] = useState(false);
+
+  useEffect(() => {
+    if (!SUPABASE_URL || SUPABASE_URL.includes("你的项目")) { setConfigError(true); setReady(true); return; }
+    db.auth.getSession().then(({data}) => { setSession(data.session); setReady(true); });
+    const { data: { subscription } } = db.auth.onAuthStateChange((_e, s) => setSession(s));
+    return () => subscription.unsubscribe();
+  }, []);
+
+  if (!ready) return <Loader />;
+  if (configError) return <ConfigGuide />;
+  if (!session) return <Auth />;
+  return <Main session={session} key={session.user.id} />;
+}
+
+function Loader() {
+  return <div className="min-h-screen flex items-center justify-center"><div className="text-[#d4a574] flex items-center gap-3"><I d={ICONS.loader} c="w-5 h-5 spin" /><span>加载中…</span></div></div>;
+}
+
+function ConfigGuide() {
+  return (
+    <div className="min-h-screen flex items-center justify-center p-6">
+      <div className="max-w-xl bg-[#13110e] border border-[#d47a7a]/30 rounded-2xl p-8">
+        <div className="flex items-center gap-3 mb-4 text-[#d47a7a]"><I d={ICONS.alert} c="w-5 h-5" /><h1 className="font-display text-2xl">需要先配置 Supabase</h1></div>
+        <p className="text-sm text-[#a89c8e] mb-4">请按部署指南操作，把 Supabase 的 URL 和密钥填入文件顶部的两行配置。</p>
+      </div>
+    </div>
+  );
+}
+
+function Auth() {
+  const [mode, setMode] = useState("login");
+  const [email, setEmail] = useState("");
+  const [pwd, setPwd] = useState("");
+  const [name, setName] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [msg, setMsg] = useState(null);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setLoading(true); setMsg(null);
+    try {
+      if (mode === "signup") {
+        if (pwd.length < 6) throw new Error("密码至少 6 位");
+        const { error } = await db.auth.signUp({ email, password: pwd, options: { data: { display_name: name || email.split("@")[0] } } });
+        if (error) throw error;
+        setMsg({ ok: true, t: "注册成功！如启用了邮箱验证请先确认，否则可直接登录" });
+        setMode("login");
+      } else if (mode === "login") {
+        const { error } = await db.auth.signInWithPassword({ email, password: pwd });
+        if (error) throw error;
+      } else {
+        const { error } = await db.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin });
+        if (error) throw error;
+        setMsg({ ok: true, t: "重置邮件已发送" });
+      }
+    } catch (err) {
+      const map = { "Invalid login credentials": "邮箱或密码错误", "User already registered": "该邮箱已注册", "Email not confirmed": "邮箱未验证" };
+      setMsg({ ok: false, t: map[err.message] || err.message });
+    } finally { setLoading(false); }
+  };
+
+  return (
+    <div className="min-h-screen relative flex items-center justify-center p-6">
+      <div className="grain"></div>
+      <div className="absolute -top-40 -right-40 w-[500px] h-[500px] rounded-full bg-[#d4a574] opacity-[0.05] blur-3xl" />
+      <div className="absolute -bottom-40 -left-40 w-[600px] h-[600px] rounded-full bg-[#7ab8d4] opacity-[0.04] blur-3xl" />
+      <div className="relative w-full max-w-md animate-fade-in">
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center gap-3 mb-6">
+            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[#d4a574] to-[#8a6a44] flex items-center justify-center"><I d={ICONS.sigma} c="w-6 h-6 text-[#13110e]" w={2.5} /></div>
+            <div className="text-left">
+              <div className="font-display text-2xl">财务管家</div>
+              <div className="text-[10px] text-[#807468] uppercase tracking-[0.2em]">Ledger Studio</div>
+            </div>
+          </div>
+          <h1 className="font-display text-4xl">{mode==="login"?"欢迎回来":mode==="signup"?"开始记账":"重置密码"}<span className="italic text-[#d4a574]">.</span></h1>
+          <p className="text-sm text-[#807468] mt-2">{mode==="login"?"登录你的账户":mode==="signup"?"30 秒创建账户":"输入邮箱接收重置链接"}</p>
+        </div>
+        <form onSubmit={submit} className="bg-[#13110e] border border-[#2a2620] rounded-2xl p-6 space-y-4">
+          {mode === "signup" && (
+            <div>
+              <label className="text-[10px] text-[#807468] uppercase tracking-widest">昵称（可选）</label>
+              <input value={name} onChange={e=>setName(e.target.value)} placeholder="留空则使用邮箱前缀"
+                className="w-full mt-1 px-3 py-2.5 bg-[#1c1915] border border-[#2a2620] rounded-lg text-sm focus:outline-none focus:border-[#d4a574]/50" />
+            </div>
+          )}
+          <div>
+            <label className="text-[10px] text-[#807468] uppercase tracking-widest">邮箱</label>
+            <input type="email" required autoFocus value={email} onChange={e=>setEmail(e.target.value)} placeholder="you@example.com"
+              className="w-full mt-1 px-3 py-2.5 bg-[#1c1915] border border-[#2a2620] rounded-lg text-sm focus:outline-none focus:border-[#d4a574]/50" />
+          </div>
+          {mode !== "forgot" && (
+            <div>
+              <label className="text-[10px] text-[#807468] uppercase tracking-widest">密码</label>
+              <input type="password" required value={pwd} onChange={e=>setPwd(e.target.value)} placeholder={mode==="signup"?"至少 6 位":"••••••"}
+                className="w-full mt-1 px-3 py-2.5 bg-[#1c1915] border border-[#2a2620] rounded-lg text-sm focus:outline-none focus:border-[#d4a574]/50" />
+            </div>
+          )}
+          {msg && (
+            <div className={`text-xs px-3 py-2 rounded-lg flex gap-2 ${msg.ok ? "bg-[#84cc7a]/10 text-[#84cc7a] border border-[#84cc7a]/20" : "bg-[#d47a7a]/10 text-[#d47a7a] border border-[#d47a7a]/20"}`}>
+              <I d={msg.ok?ICONS.check:ICONS.alert} c="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />{msg.t}
+            </div>
+          )}
+          <button type="submit" disabled={loading}
+            className="w-full py-3 rounded-lg bg-gradient-to-br from-[#d4a574] to-[#b88e5e] text-[#13110e] font-semibold text-sm disabled:opacity-50 flex items-center justify-center gap-2">
+            {loading && <I d={ICONS.loader} c="w-4 h-4 spin" />}
+            {mode==="login"?"登录":mode==="signup"?"创建账户":"发送重置链接"}
+          </button>
+          <div className="flex justify-between text-xs text-[#807468] pt-2">
+            {mode === "login" ? (
+              <>
+                <button type="button" onClick={()=>{setMode("signup");setMsg(null);}} className="hover:text-[#d4a574]">没有账户？注册</button>
+                <button type="button" onClick={()=>{setMode("forgot");setMsg(null);}} className="hover:text-[#d4a574]">忘记密码？</button>
+              </>
+            ) : (
+              <button type="button" onClick={()=>{setMode("login");setMsg(null);}} className="hover:text-[#d4a574]">← 返回登录</button>
+            )}
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function Main({ session }) {
+  const userId = session.user.id;
+  const [view, setView] = useState("dashboard");
+  const [data, setData] = useState({ accounts:[], categories:[], transactions:[], budgets:[], profile:{currency:"CNY", hide_balance:false} });
+  const [loading, setLoading] = useState(true);
+  const [editTx, setEditTx] = useState(null);
+  const [showTx, setShowTx] = useState(false);
+
+  const load = useCallback(async () => {
+    const [a,c,t,b,p] = await Promise.all([
+      db.from("accounts").select("*").order("created_at"),
+      db.from("categories").select("*").order("created_at"),
+      db.from("transactions").select("*").order("date",{ascending:false}).limit(2000),
+      db.from("budgets").select("*"),
+      db.from("profiles").select("*").eq("id",userId).maybeSingle(),
+    ]);
+    setData({
+      accounts: a.data || [], categories: c.data || [], transactions: t.data || [],
+      budgets: b.data || [],
+      profile: p.data || { currency:"CNY", hide_balance:false, display_name: session.user.email },
+    });
+    setLoading(false);
+  }, [userId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const ops = useMemo(() => {
+    const handle = async (promise, onSuccess) => {
+      const { data: row, error } = await promise;
+      if (error) { alert(error.message); return null; }
+      onSuccess(row); return row;
+    };
+    return {
+      addTx: (tx) => handle(db.from("transactions").insert({...tx, user_id:userId}).select().single(), r => setData(d=>({...d, transactions:[r,...d.transactions]}))),
+      updateTx: (id, p) => handle(db.from("transactions").update(p).eq("id",id).select().single(), r => setData(d=>({...d, transactions:d.transactions.map(x=>x.id===id?r:x)}))),
+      delTx: async (id) => { if(!confirm("删除？"))return; const{error}=await db.from("transactions").delete().eq("id",id); if(error)return alert(error.message); setData(d=>({...d, transactions:d.transactions.filter(x=>x.id!==id)})); },
+      addAcc: (a) => handle(db.from("accounts").insert({...a, user_id:userId}).select().single(), r => setData(d=>({...d, accounts:[...d.accounts,r]}))),
+      updateAcc: (id, p) => handle(db.from("accounts").update(p).eq("id",id).select().single(), r => setData(d=>({...d, accounts:d.accounts.map(x=>x.id===id?r:x)}))),
+      delAcc: async (id) => {
+        if (data.transactions.some(t=>t.account_id===id||t.from_account_id===id||t.to_account_id===id)) return alert("此账户存在交易，无法删除");
+        if(!confirm("删除？"))return;
+        const{error}=await db.from("accounts").delete().eq("id",id);
+        if(error)return alert(error.message);
+        setData(d=>({...d, accounts:d.accounts.filter(x=>x.id!==id)}));
+      },
+      addBudget: (b) => handle(db.from("budgets").insert({...b, user_id:userId}).select().single(), r => setData(d=>({...d, budgets:[...d.budgets,r]}))),
+      updateBudget: (id, p) => handle(db.from("budgets").update(p).eq("id",id).select().single(), r => setData(d=>({...d, budgets:d.budgets.map(x=>x.id===id?r:x)}))),
+      delBudget: async (id) => { if(!confirm("删除？"))return; const{error}=await db.from("budgets").delete().eq("id",id); if(error)return alert(error.message); setData(d=>({...d, budgets:d.budgets.filter(x=>x.id!==id)})); },
+      updateProfile: (p) => handle(db.from("profiles").upsert({id:userId, ...data.profile, ...p}).select().single(), r => setData(d=>({...d, profile:r}))),
+    };
+  }, [userId, data.transactions, data.profile]);
+
+  const accBalances = useMemo(() => data.accounts.map(acc => {
+    let b = Number(acc.balance) || 0;
+    data.transactions.forEach(t => {
+      const a = Number(t.amount);
+      if (t.type==="income" && t.account_id===acc.id) b += a;
+      if (t.type==="expense" && t.account_id===acc.id) b -= a;
+      if (t.type==="transfer") {
+        if (t.from_account_id===acc.id) b -= a;
+        if (t.to_account_id===acc.id) b += a;
+      }
+    });
+    return { ...acc, balance_now: b };
+  }), [data.accounts, data.transactions]);
+
+  const totalAssets = accBalances.filter(a=>a.type!=="credit").reduce((s,a)=>s+a.balance_now, 0);
+  const totalDebt = accBalances.filter(a=>a.type==="credit").reduce((s,a)=>s+Math.max(0,-a.balance_now), 0);
+  const netWorth = totalAssets - totalDebt;
+
+  const cur = data.profile.currency || "CNY";
+  const hide = data.profile.hide_balance;
+  const signOut = () => db.auth.signOut();
+
+  if (loading) return <Loader />;
+
+  return (
+    <div className="min-h-screen relative">
+      <div className="grain"></div>
+      <div className="absolute -top-40 -right-40 w-[500px] h-[500px] rounded-full bg-[#d4a574] opacity-[0.04] blur-3xl pointer-events-none" />
+      <div className="absolute -bottom-40 -left-40 w-[600px] h-[600px] rounded-full bg-[#7ab8d4] opacity-[0.03] blur-3xl pointer-events-none" />
+      <div className="relative flex min-h-screen">
+        <Sidebar view={view} setView={setView} onAdd={()=>{setEditTx(null);setShowTx(true);}} onSignOut={signOut} name={data.profile.display_name||session.user.email} />
+        <main className="flex-1 ml-64 p-8 max-w-[1400px]">
+          {view==="dashboard" && <Dashboard data={data} accBalances={accBalances} netWorth={netWorth} totalAssets={totalAssets} totalDebt={totalDebt} cur={cur} hide={hide} onToggleHide={()=>ops.updateProfile({hide_balance:!hide})} onEditTx={t=>{setEditTx(t);setShowTx(true);}} setView={setView} />}
+          {view==="transactions" && <TxView data={data} ops={ops} cur={cur} hide={hide} onEditTx={t=>{setEditTx(t);setShowTx(true);}} />}
+          {view==="accounts" && <AccountsView data={data} ops={ops} accBalances={accBalances} cur={cur} hide={hide} />}
+          {view==="budgets" && <BudgetsView data={data} ops={ops} cur={cur} hide={hide} />}
+          {view==="analytics" && <Analytics data={data} cur={cur} hide={hide} />}
+          {view==="settings" && <SettingsView data={data} ops={ops} session={session} />}
+        </main>
+      </div>
+      {showTx && <TxModal data={data} ops={ops} editing={editTx} cur={cur} onClose={()=>{setShowTx(false);setEditTx(null);}} />}
+    </div>
+  );
+}
+
+function Sidebar({ view, setView, onAdd, onSignOut, name }) {
+  const items = [
+    { id:"dashboard", label:"概览", icon:ICONS.home },
+    { id:"transactions", label:"交易记录", icon:ICONS.receipt },
+    { id:"accounts", label:"账户", icon:ICONS.wallet },
+    { id:"budgets", label:"预算", icon:ICONS.target },
+    { id:"analytics", label:"分析", icon:ICONS.chart },
+    { id:"settings", label:"设置", icon:ICONS.cog },
+  ];
+  return (
+    <aside className="fixed left-0 top-0 bottom-0 w-64 bg-[#13110e] border-r border-[#2a2620] flex flex-col z-10">
+      <div className="p-6 border-b border-[#2a2620]">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-[#d4a574] to-[#8a6a44] flex items-center justify-center"><I d={ICONS.sigma} c="w-5 h-5 text-[#13110e]" w={2.5} /></div>
+          <div>
+            <div className="font-display text-xl">财务管家</div>
+            <div className="text-[10px] text-[#807468] uppercase tracking-[0.2em]">Ledger Studio</div>
+          </div>
+        </div>
+      </div>
+      <nav className="flex-1 p-3 space-y-1">
+        {items.map(it => (
+          <button key={it.id} onClick={()=>setView(it.id)}
+            className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm transition-all ${view===it.id?"bg-[#d4a574]/10 text-[#d4a574] border border-[#d4a574]/20":"text-[#a89c8e] hover:bg-[#1c1915] hover:text-[#f5f0e8] border border-transparent"}`}>
+            <I d={it.icon} /><span>{it.label}</span>
+          </button>
+        ))}
+      </nav>
+      <div className="p-4 border-t border-[#2a2620] space-y-3">
+        <button onClick={onAdd} className="w-full flex items-center justify-center gap-2 py-3 rounded-lg bg-gradient-to-br from-[#d4a574] to-[#b88e5e] text-[#13110e] font-semibold text-sm">
+          <I d={ICONS.plus} w={2.5} />记一笔
+        </button>
+        <div className="flex items-center gap-2 px-2 text-xs text-[#807468]">
+          <div className="w-7 h-7 rounded-full bg-[#1c1915] flex items-center justify-center text-[#d4a574]"><I d={ICONS.user} c="w-3.5 h-3.5" /></div>
+          <span className="flex-1 truncate">{name}</span>
+          <button onClick={onSignOut} title="退出" className="p-1.5 rounded-md hover:bg-[#1c1915] hover:text-[#d47a7a]"><I d={ICONS.logout} c="w-3.5 h-3.5" /></button>
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+function Dashboard({ data, accBalances, netWorth, totalAssets, totalDebt, cur, hide, onToggleHide, onEditTx, setView }) {
+  const now = new Date();
+  const tm = monthOf(today());
+  const lmd = new Date(now.getFullYear(), now.getMonth()-1, 1);
+  const lm = lmd.toISOString().slice(0,7);
+  const mtx = data.transactions.filter(t=>monthOf(t.date)===tm);
+  const lmtx = data.transactions.filter(t=>monthOf(t.date)===lm);
+  const mInc = mtx.filter(t=>t.type==="income").reduce((s,t)=>s+Number(t.amount),0);
+  const mExp = mtx.filter(t=>t.type==="expense").reduce((s,t)=>s+Number(t.amount),0);
+  const lInc = lmtx.filter(t=>t.type==="income").reduce((s,t)=>s+Number(t.amount),0);
+  const lExp = lmtx.filter(t=>t.type==="expense").reduce((s,t)=>s+Number(t.amount),0);
+  const incCh = lInc>0 ? ((mInc-lInc)/lInc)*100 : 0;
+  const expCh = lExp>0 ? ((mExp-lExp)/lExp)*100 : 0;
+  const sav = mInc - mExp;
+  const savRate = mInc>0 ? (sav/mInc)*100 : 0;
+
+  const trend = useMemo(() => {
+    const arr = [];
+    for (let i=5; i>=0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
+      const k = d.toISOString().slice(0,7);
+      const t = data.transactions.filter(x=>monthOf(x.date)===k);
+      arr.push({
+        month: d.toLocaleDateString("zh-CN",{month:"short"}),
+        income: t.filter(x=>x.type==="income").reduce((s,x)=>s+Number(x.amount),0),
+        expense: t.filter(x=>x.type==="expense").reduce((s,x)=>s+Number(x.amount),0),
+      });
+    }
+    return arr;
+  }, [data.transactions]);
+
+  const catBreak = useMemo(() => {
+    const m = {};
+    mtx.filter(t=>t.type==="expense").forEach(t => {
+      const c = data.categories.find(x=>x.id===t.category_id);
+      if (!c) return;
+      m[c.id] = (m[c.id]||0) + Number(t.amount);
+    });
+    return Object.entries(m).map(([id,v]) => {
+      const c = data.categories.find(x=>x.id===id);
+      return { id, name:c?.name||"未知", value:v, color:c?.color||"#888" };
+    }).sort((a,b)=>b.value-a.value);
+  }, [mtx, data.categories]);
+
+  return (
+    <div className="space-y-6 animate-fade-in">
+      <header className="flex items-end justify-between">
+        <div>
+          <div className="text-xs text-[#807468] uppercase tracking-[0.25em] mb-2">{now.toLocaleDateString("zh-CN",{year:"numeric",month:"long"})}</div>
+          <h1 className="font-display text-5xl">{now.getHours()<12?"早上好":now.getHours()<18?"下午好":"晚上好"}<span className="italic text-[#d4a574]">.</span></h1>
+        </div>
+        <button onClick={onToggleHide} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#1c1915] hover:bg-[#252118] border border-[#2a2620] text-xs text-[#a89c8e]">
+          <I d={hide?ICONS.eye:ICONS.eyeoff} c="w-3.5 h-3.5" />{hide?"显示金额":"隐藏金额"}
+        </button>
+      </header>
+
+      <div className="relative overflow-hidden bg-gradient-to-br from-[#1c1915] to-[#13110e] border border-[#2a2620] rounded-2xl p-8">
+        <div className="absolute top-0 right-0 w-64 h-64 bg-[#d4a574] opacity-[0.06] blur-3xl rounded-full" />
+        <div className="relative flex justify-between items-start">
+          <div>
+            <div className="text-xs text-[#807468] uppercase tracking-[0.25em] mb-3">总净资产</div>
+            <div className="font-display text-6xl font-light">{fmt(netWorth, cur, hide)}</div>
+            <div className="flex gap-6 mt-6 text-sm">
+              <div><div className="text-[10px] text-[#807468] uppercase tracking-widest mb-1">总资产</div><div className="font-mono text-[#84cc7a]">{fmt(totalAssets, cur, hide)}</div></div>
+              <div className="w-px bg-[#2a2620]" />
+              <div><div className="text-[10px] text-[#807468] uppercase tracking-widest mb-1">总负债</div><div className="font-mono text-[#d47a7a]">{fmt(totalDebt, cur, hide)}</div></div>
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-xs text-[#807468] uppercase tracking-widest mb-2">本月结余</div>
+            <div className={`font-display text-3xl ${sav>=0?"text-[#84cc7a]":"text-[#d47a7a]"}`}>{sav>=0?"+":""}{fmt(sav, cur, hide)}</div>
+            <div className="text-xs text-[#807468] mt-1">储蓄率 <span className="font-mono text-[#d4a574]">{savRate.toFixed(1)}%</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-5">
+        <Stat label="本月收入" value={mInc} change={incCh} color="#84cc7a" cur={cur} hide={hide} />
+        <Stat label="本月支出" value={mExp} change={expCh} reverse color="#d47a7a" cur={cur} hide={hide} />
+      </div>
+
+      <div className="grid grid-cols-3 gap-5">
+        <div className="col-span-2 bg-[#13110e] border border-[#2a2620] rounded-2xl p-6">
+          <h3 className="font-display text-xl mb-1">收支趋势</h3>
+          <div className="text-xs text-[#807468] mb-6">最近 6 个月</div>
+          <MyAreaChart data={trend} />
+        </div>
+        <div className="bg-[#13110e] border border-[#2a2620] rounded-2xl p-6">
+          <h3 className="font-display text-xl mb-1">本月支出分布</h3>
+          <div className="text-xs text-[#807468] mb-4">按分类</div>
+          {catBreak.length===0 ? <div className="h-[200px] flex items-center justify-center text-sm text-[#807468]">本月暂无支出</div> : (
+            <>
+              <div className="flex justify-center mb-3"><MyPieChart data={catBreak} size={160} /></div>
+              <div className="space-y-1.5 max-h-[140px] overflow-auto">
+                {catBreak.slice(0,5).map(c => (
+                  <div key={c.id} className="flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full" style={{background:c.color}} /><span className="text-[#a89c8e]">{c.name}</span></div>
+                    <span className="font-mono">{fmt(c.value, cur, hide)}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-5">
+        <div className="col-span-2 bg-[#13110e] border border-[#2a2620] rounded-2xl p-6">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="font-display text-xl">最近交易</h3>
+            <button onClick={()=>setView("transactions")} className="text-xs text-[#d4a574] hover:underline">查看全部 →</button>
+          </div>
+          {data.transactions.slice(0,6).length===0 ? <div className="py-12 text-center text-sm text-[#807468]">点击左下角"记一笔"开始</div> : (
+            <div className="space-y-1">{data.transactions.slice(0,6).map(t=><TxRow key={t.id} tx={t} data={data} cur={cur} hide={hide} onClick={()=>onEditTx(t)} />)}</div>
+          )}
+        </div>
+        <div className="bg-[#13110e] border border-[#2a2620] rounded-2xl p-6">
+          <h3 className="font-display text-xl mb-4">账户余额</h3>
+          <div className="space-y-3">
+            {accBalances.slice(0,5).map(acc => (
+              <div key={acc.id} className="flex items-center justify-between p-3 rounded-lg bg-[#1c1915]">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{background:`${acc.color}20`, color:acc.color}}><I d={ICONS.wallet} /></div>
+                  <div>
+                    <div className="text-sm">{acc.name}</div>
+                    <div className="text-[10px] text-[#807468] uppercase tracking-wider">{ACCOUNT_TYPES[acc.type]}</div>
+                  </div>
+                </div>
+                <div className={`font-mono text-sm ${acc.balance_now<0?"text-[#d47a7a]":""}`}>{fmt(acc.balance_now, cur, hide)}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Stat({ label, value, change, color, cur, hide, reverse }) {
+  const pos = reverse ? change<=0 : change>=0;
+  return (
+    <div className="bg-[#13110e] border border-[#2a2620] rounded-2xl p-6 relative overflow-hidden">
+      <div className="absolute top-0 right-0 w-32 h-32 rounded-full blur-2xl opacity-10" style={{background:color}} />
+      <div className="relative">
+        <div className="flex justify-between items-start mb-4">
+          <div className="text-xs text-[#807468] uppercase tracking-widest">{label}</div>
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{background:`${color}15`, color}}><I d={reverse?ICONS.down:ICONS.up} /></div>
+        </div>
+        <div className="font-display text-3xl mb-2">{fmt(value, cur, hide)}</div>
+        <div className={`text-xs ${pos?"text-[#84cc7a]":"text-[#d47a7a]"}`}>{Math.abs(change).toFixed(1)}% <span className="text-[#807468]">较上月</span></div>
+      </div>
+    </div>
+  );
+}
+
+function TxRow({ tx, data, cur, hide, onClick }) {
+  const cat = data.categories.find(c=>c.id===tx.category_id);
+  const acc = data.accounts.find(a=>a.id===tx.account_id);
+  const isInc = tx.type==="income";
+  const isTr = tx.type==="transfer";
+  const fa = data.accounts.find(a=>a.id===tx.from_account_id);
+  const ta = data.accounts.find(a=>a.id===tx.to_account_id);
+  const color = isTr?"#d4a574":(cat?.color||"#888");
+  return (
+    <button onClick={onClick} className="w-full flex items-center gap-3 p-2.5 rounded-lg hover:bg-[#1c1915] text-left">
+      <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{background:`${color}15`, color}}><I d={isTr?ICONS.swap:ICONS.wallet} /></div>
+      <div className="flex-1 min-w-0">
+        <div className="text-sm truncate">{isTr?`${fa?.name} → ${ta?.name}`:(tx.description||cat?.name||"—")}</div>
+        <div className="text-[10px] text-[#807468] uppercase tracking-wider">{isTr?"转账":`${cat?.name||""} · ${acc?.name||""}`} · {fmtDate(tx.date)}</div>
+      </div>
+      <div className={`font-mono text-sm ${isTr?"text-[#d4a574]":isInc?"text-[#84cc7a]":""}`}>{isTr?"":isInc?"+":"-"}{fmt(tx.amount, cur, hide)}</div>
+    </button>
+  );
+}
+
+function TxView({ data, ops, cur, hide, onEditTx }) {
+  const [search, setSearch] = useState("");
+  const [ft, setFt] = useState("all");
+  const [fc, setFc] = useState("all");
+  const [fm, setFm] = useState("all");
+
+  const filtered = useMemo(() => data.transactions.filter(tx => {
+    if (ft!=="all" && tx.type!==ft) return false;
+    if (fc!=="all" && tx.category_id!==fc) return false;
+    if (fm!=="all" && monthOf(tx.date)!==fm) return false;
+    if (search) {
+      const c = data.categories.find(x=>x.id===tx.category_id);
+      if (!`${tx.description||""} ${c?.name||""}`.toLowerCase().includes(search.toLowerCase())) return false;
+    }
+    return true;
+  }), [data.transactions, data.categories, search, ft, fc, fm]);
+
+  const grouped = useMemo(() => {
+    const m = {};
+    filtered.forEach(t => { (m[t.date]=m[t.date]||[]).push(t); });
+    return Object.entries(m).sort((a,b)=>b[0].localeCompare(a[0]));
+  }, [filtered]);
+
+  const months = useMemo(() => Array.from(new Set(data.transactions.map(t=>monthOf(t.date)))).sort().reverse(), [data.transactions]);
+  const tInc = filtered.filter(t=>t.type==="income").reduce((s,t)=>s+Number(t.amount),0);
+  const tExp = filtered.filter(t=>t.type==="expense").reduce((s,t)=>s+Number(t.amount),0);
+
+  return (
+    <div className="space-y-6 animate-fade-in">
+      <header><div className="text-xs text-[#807468] uppercase tracking-[0.25em] mb-2">Transactions</div><h1 className="font-display text-5xl">交易记录</h1></header>
+      <div className="grid grid-cols-3 gap-5">
+        <Sum label="收入合计" value={fmt(tInc, cur, hide)} color="#84cc7a" />
+        <Sum label="支出合计" value={fmt(tExp, cur, hide)} color="#d47a7a" />
+        <Sum label="条数" value={filtered.length} />
+      </div>
+      <div className="bg-[#13110e] border border-[#2a2620] rounded-xl p-4 flex flex-wrap gap-3 items-center">
+        <div className="relative flex-1 min-w-[200px]">
+          <I d={ICONS.search} c="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#807468]" />
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="搜索备注或分类…"
+            className="w-full pl-9 pr-3 py-2 bg-[#1c1915] border border-[#2a2620] rounded-lg text-sm focus:outline-none focus:border-[#d4a574]/50" />
+        </div>
+        <Sel value={ft} onChange={setFt} opts={[{v:"all",l:"全部类型"},{v:"income",l:"收入"},{v:"expense",l:"支出"},{v:"transfer",l:"转账"}]} />
+        <Sel value={fc} onChange={setFc} opts={[{v:"all",l:"全部分类"}, ...data.categories.map(c=>({v:c.id,l:c.name}))]} />
+        <Sel value={fm} onChange={setFm} opts={[{v:"all",l:"全部月份"}, ...months.map(m=>({v:m,l:m}))]} />
+      </div>
+      <div className="space-y-6">
+        {grouped.length===0 ? <div className="bg-[#13110e] border border-[#2a2620] rounded-xl py-16 text-center text-[#807468]">没有匹配的记录</div> :
+          grouped.map(([date,txs]) => {
+            const di = txs.filter(t=>t.type==="income").reduce((s,t)=>s+Number(t.amount),0);
+            const de = txs.filter(t=>t.type==="expense").reduce((s,t)=>s+Number(t.amount),0);
+            return (
+              <div key={date}>
+                <div className="flex justify-between mb-3 px-1">
+                  <div className="text-sm text-[#a89c8e]">{fmtFull(date)}</div>
+                  <div className="text-xs font-mono text-[#807468]">
+                    {di>0 && <span className="text-[#84cc7a]">+{fmt(di,cur,hide)} </span>}
+                    {de>0 && <span className="text-[#d47a7a]">-{fmt(de,cur,hide)}</span>}
+                  </div>
+                </div>
+                <div className="bg-[#13110e] border border-[#2a2620] rounded-xl divide-y divide-[#2a2620]">
+                  {txs.map(tx => <TxFullRow key={tx.id} tx={tx} data={data} cur={cur} hide={hide} onEdit={()=>onEditTx(tx)} onDelete={()=>ops.delTx(tx.id)} />)}
+                </div>
+              </div>
+            );
+          })
+        }
+      </div>
+    </div>
+  );
+}
+
+function Sum({ label, value, color }) {
+  return <div className="bg-[#13110e] border border-[#2a2620] rounded-xl p-5">
+    <div className="text-xs text-[#807468] uppercase tracking-widest mb-1">{label}</div>
+    <div className="font-display text-2xl" style={color?{color}:{}}>{value}</div>
+  </div>;
+}
+
+function TxFullRow({ tx, data, cur, hide, onEdit, onDelete }) {
+  const cat = data.categories.find(c=>c.id===tx.category_id);
+  const acc = data.accounts.find(a=>a.id===tx.account_id);
+  const isInc = tx.type==="income";
+  const isTr = tx.type==="transfer";
+  const fa = data.accounts.find(a=>a.id===tx.from_account_id);
+  const ta = data.accounts.find(a=>a.id===tx.to_account_id);
+  const color = isTr?"#d4a574":(cat?.color||"#888");
+  return (
+    <div className="group flex items-center gap-4 p-4 hover:bg-[#1c1915]/50">
+      <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{background:`${color}15`, color}}><I d={isTr?ICONS.swap:ICONS.wallet} /></div>
+      <div className="flex-1 min-w-0">
+        <div className="text-sm">{isTr?`${fa?.name} → ${ta?.name}`:(tx.description||cat?.name)}</div>
+        <div className="text-xs text-[#807468] mt-0.5">{isTr?"账户转账":`${cat?.name||""} · ${acc?.name||""}`}</div>
+      </div>
+      <div className={`font-mono text-base ${isTr?"text-[#d4a574]":isInc?"text-[#84cc7a]":""}`}>{isTr?"":isInc?"+":"-"}{fmt(tx.amount, cur, hide)}</div>
+      <div className="opacity-0 group-hover:opacity-100 flex gap-1">
+        <button onClick={onEdit} className="p-2 rounded-lg hover:bg-[#252118] text-[#a89c8e]"><I d={ICONS.edit} c="w-3.5 h-3.5" /></button>
+        <button onClick={onDelete} className="p-2 rounded-lg hover:bg-[#252118] text-[#d47a7a]"><I d={ICONS.trash} c="w-3.5 h-3.5" /></button>
+      </div>
+    </div>
+  );
+}
+
+function Sel({ value, onChange, opts }) {
+  return <select value={value} onChange={e=>onChange(e.target.value)} className="bg-[#1c1915] border border-[#2a2620] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#d4a574]/50 cursor-pointer">
+    {opts.map(o=><option key={o.v} value={o.v}>{o.l}</option>)}
+  </select>;
+}
+
+function TxModal({ data, ops, editing, cur, onClose }) {
+  const [type, setType] = useState(editing?.type || "expense");
+  const [amount, setAmount] = useState(editing?.amount?.toString() || "");
+  const [catId, setCatId] = useState(editing?.category_id || "");
+  const [accId, setAccId] = useState(editing?.account_id || data.accounts[0]?.id || "");
+  const [fromId, setFromId] = useState(editing?.from_account_id || data.accounts[0]?.id || "");
+  const [toId, setToId] = useState(editing?.to_account_id || data.accounts[1]?.id || "");
+  const [date, setDate] = useState(editing?.date || today());
+  const [desc, setDesc] = useState(editing?.description || "");
+  const [busy, setBusy] = useState(false);
+
+  const fcats = data.categories.filter(c=>c.type===type);
+  useEffect(() => { if (type!=="transfer" && !fcats.find(c=>c.id===catId)) setCatId(fcats[0]?.id||""); }, [type, fcats.length]);
+
+  const submit = async () => {
+    const amt = parseFloat(amount);
+    if (!amt||amt<=0) return alert("请输入有效金额");
+    if (type==="transfer" && fromId===toId) return alert("转出转入不能相同");
+    if (type!=="transfer" && !catId) return alert("请选择分类");
+    const tx = {
+      type, amount:amt, date, description:desc||null,
+      category_id: type==="transfer"?null:catId,
+      account_id: type==="transfer"?null:accId,
+      from_account_id: type==="transfer"?fromId:null,
+      to_account_id: type==="transfer"?toId:null,
+    };
+    setBusy(true);
+    if (editing) await ops.updateTx(editing.id, tx); else await ops.addTx(tx);
+    setBusy(false); onClose();
+  };
+
+  return (
+    <Modal onClose={onClose} title={editing?"编辑交易":"记一笔"}>
+      <div className="grid grid-cols-3 gap-2 mb-5 p-1 bg-[#1c1915] rounded-lg">
+        {[{v:"expense",l:"支出",c:"#d47a7a"},{v:"income",l:"收入",c:"#84cc7a"},{v:"transfer",l:"转账",c:"#d4a574"}].map(t => (
+          <button key={t.v} onClick={()=>setType(t.v)} className={`py-2 rounded-md text-sm transition-all ${type===t.v?"bg-[#252118] font-medium":"text-[#807468]"}`} style={type===t.v?{boxShadow:`inset 0 0 0 1px ${t.c}40`}:{}}>{t.l}</button>
+        ))}
+      </div>
+      <Field label="金额">
+        <div className="relative">
+          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[#d4a574] font-display text-xl">{CURRENCIES[cur].s}</span>
+          <input type="number" step="0.01" value={amount} onChange={e=>setAmount(e.target.value)} autoFocus placeholder="0.00"
+            className="w-full pl-10 pr-4 py-3 bg-[#1c1915] border border-[#2a2620] rounded-lg font-mono text-2xl focus:outline-none focus:border-[#d4a574]/50" />
+        </div>
+      </Field>
+      {type !== "transfer" ? <>
+        <Field label="分类">
+          <div className="grid grid-cols-4 gap-2 max-h-[180px] overflow-auto">
+            {fcats.map(c => (
+              <button key={c.id} onClick={()=>setCatId(c.id)} className={`flex flex-col items-center gap-1.5 p-3 rounded-lg border transition-all ${catId===c.id?"border-[#d4a574]/50 bg-[#1c1915]":"border-[#2a2620] hover:border-[#3a352e] bg-[#1c1915]/50"}`}>
+                <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{background:`${c.color}20`, color:c.color}}><I d={ICONS.wallet} /></div>
+                <span className="text-[11px]">{c.name}</span>
+              </button>
+            ))}
+          </div>
+        </Field>
+        <Field label="账户"><Sel value={accId} onChange={setAccId} opts={data.accounts.map(a=>({v:a.id,l:a.name}))} /></Field>
+      </> : (
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="转出"><Sel value={fromId} onChange={setFromId} opts={data.accounts.map(a=>({v:a.id,l:a.name}))} /></Field>
+          <Field label="转入"><Sel value={toId} onChange={setToId} opts={data.accounts.map(a=>({v:a.id,l:a.name}))} /></Field>
+        </div>
+      )}
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="日期"><input type="date" value={date} onChange={e=>setDate(e.target.value)} className="w-full px-3 py-2 bg-[#1c1915] border border-[#2a2620] rounded-lg text-sm focus:outline-none focus:border-[#d4a574]/50" /></Field>
+        <Field label="备注"><input value={desc} onChange={e=>setDesc(e.target.value)} placeholder="可选" className="w-full px-3 py-2 bg-[#1c1915] border border-[#2a2620] rounded-lg text-sm focus:outline-none focus:border-[#d4a574]/50" /></Field>
+      </div>
+      <Actions onClose={onClose} onSubmit={submit} busy={busy} />
+    </Modal>
+  );
+}
+
+function Field({ label, children }) { return <div className="mb-4"><div className="text-[10px] text-[#807468] uppercase tracking-widest mb-1.5">{label}</div>{children}</div>; }
+
+function Modal({ children, onClose, title }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in" onClick={onClose}>
+      <div className="w-full max-w-lg bg-[#13110e] border border-[#2a2620] rounded-2xl p-6 animate-slide-up max-h-[90vh] overflow-auto" onClick={e=>e.stopPropagation()}>
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="font-display text-2xl">{title}</h2>
+          <button onClick={onClose} className="p-2 rounded-lg hover:bg-[#1c1915]"><I d={ICONS.x} /></button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function Actions({ onClose, onSubmit, busy, label="确认" }) {
+  return <div className="flex gap-3 mt-6">
+    <button onClick={onClose} className="flex-1 py-3 rounded-lg bg-[#1c1915] hover:bg-[#252118] text-sm">取消</button>
+    <button onClick={onSubmit} disabled={busy} className="flex-1 py-3 rounded-lg bg-gradient-to-br from-[#d4a574] to-[#b88e5e] text-[#13110e] font-semibold text-sm disabled:opacity-50 flex items-center justify-center gap-2">
+      {busy && <I d={ICONS.loader} c="w-4 h-4 spin" />}{label}
+    </button>
+  </div>;
+}
+
+function AccountsView({ data, ops, accBalances, cur, hide }) {
+  const [show, setShow] = useState(false);
+  const [edit, setEdit] = useState(null);
+  return (
+    <div className="space-y-6 animate-fade-in">
+      <header className="flex justify-between items-end">
+        <div><div className="text-xs text-[#807468] uppercase tracking-[0.25em] mb-2">Accounts</div><h1 className="font-display text-5xl">账户管理</h1></div>
+        <button onClick={()=>{setEdit(null);setShow(true);}} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#d4a574]/10 border border-[#d4a574]/30 text-[#d4a574] text-sm"><I d={ICONS.plus} /> 新建账户</button>
+      </header>
+      <div className="grid grid-cols-3 gap-5">
+        {accBalances.map(acc => (
+          <div key={acc.id} className="group relative overflow-hidden bg-[#13110e] border border-[#2a2620] rounded-2xl p-6 hover:border-[#3a352e]">
+            <div className="absolute top-0 right-0 w-40 h-40 rounded-full blur-3xl opacity-10" style={{background:acc.color}} />
+            <div className="relative">
+              <div className="flex justify-between items-start mb-6">
+                <div className="w-11 h-11 rounded-lg flex items-center justify-center" style={{background:`${acc.color}20`, color:acc.color}}><I d={ICONS.wallet} c="w-5 h-5" /></div>
+                <div className="opacity-0 group-hover:opacity-100 flex gap-1">
+                  <button onClick={()=>{setEdit(acc);setShow(true);}} className="p-1.5 rounded-md hover:bg-[#252118] text-[#a89c8e]"><I d={ICONS.edit} c="w-3.5 h-3.5" /></button>
+                  <button onClick={()=>ops.delAcc(acc.id)} className="p-1.5 rounded-md hover:bg-[#252118] text-[#d47a7a]"><I d={ICONS.trash} c="w-3.5 h-3.5" /></button>
+                </div>
+              </div>
+              <div className="text-[10px] text-[#807468] uppercase tracking-widest mb-1">{ACCOUNT_TYPES[acc.type]}</div>
+              <div className="font-display text-xl mb-2">{acc.name}</div>
+              <div className={`font-display text-3xl ${acc.balance_now<0?"text-[#d47a7a]":""}`}>{fmt(acc.balance_now, cur, hide)}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      {show && <AccountForm ops={ops} editing={edit} onClose={()=>{setShow(false);setEdit(null);}} />}
+    </div>
+  );
+}
+
+function AccountForm({ ops, editing, onClose }) {
+  const [name, setName] = useState(editing?.name || "");
+  const [type, setType] = useState(editing?.type || "bank");
+  const [bal, setBal] = useState(editing?.balance?.toString() || "0");
+  const [color, setColor] = useState(editing?.color || "#d4a574");
+  const [busy, setBusy] = useState(false);
+  const colors = ["#d4a574","#7ab8d4","#d47a9c","#a87ad4","#84cc7a","#d47a7a","#7ad4c4","#d4c87a"];
+
+  const submit = async () => {
+    if (!name.trim()) return alert("请输入名称");
+    setBusy(true);
+    const a = { name:name.trim(), type, balance:parseFloat(bal)||0, color };
+    if (editing) await ops.updateAcc(editing.id, a); else await ops.addAcc(a);
+    setBusy(false); onClose();
+  };
+
+  return (
+    <Modal onClose={onClose} title={editing?"编辑账户":"新建账户"}>
+      <Field label="名称"><input value={name} onChange={e=>setName(e.target.value)} autoFocus className="w-full px-3 py-2 bg-[#1c1915] border border-[#2a2620] rounded-lg text-sm focus:outline-none focus:border-[#d4a574]/50" /></Field>
+      <Field label="类型"><Sel value={type} onChange={setType} opts={Object.entries(ACCOUNT_TYPES).map(([v,l])=>({v,l}))} /></Field>
+      <Field label="初始余额"><input type="number" step="0.01" value={bal} onChange={e=>setBal(e.target.value)} className="w-full px-3 py-2 bg-[#1c1915] border border-[#2a2620] rounded-lg font-mono text-sm focus:outline-none focus:border-[#d4a574]/50" /></Field>
+      <Field label="颜色">
+        <div className="flex gap-2">
+          {colors.map(c => <button key={c} onClick={()=>setColor(c)} className={`w-8 h-8 rounded-lg ${color===c?"scale-110":"opacity-60 hover:opacity-100"}`} style={{background:c, boxShadow: color===c?`0 0 0 2px #13110e, 0 0 0 4px ${c}`:"none"}} />)}
+        </div>
+      </Field>
+      <Actions onClose={onClose} onSubmit={submit} busy={busy} />
+    </Modal>
+  );
+}
+
+function BudgetsView({ data, ops, cur, hide }) {
+  const [show, setShow] = useState(false);
+  const [edit, setEdit] = useState(null);
+  const tm = monthOf(today());
+  const mexp = data.transactions.filter(t=>t.type==="expense" && monthOf(t.date)===tm);
+  const bws = data.budgets.map(b => {
+    const spent = mexp.filter(t=>t.category_id===b.category_id).reduce((s,t)=>s+Number(t.amount),0);
+    return { ...b, spent, remaining:Number(b.amount)-spent, percent:(spent/Number(b.amount))*100 };
+  });
+  const total = data.budgets.reduce((s,b)=>s+Number(b.amount),0);
+  const tspent = mexp.reduce((s,t)=>s+Number(t.amount),0);
+
+  return (
+    <div className="space-y-6 animate-fade-in">
+      <header className="flex justify-between items-end">
+        <div><div className="text-xs text-[#807468] uppercase tracking-[0.25em] mb-2">Budgets</div><h1 className="font-display text-5xl">预算管理</h1></div>
+        <button onClick={()=>{setEdit(null);setShow(true);}} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#d4a574]/10 border border-[#d4a574]/30 text-[#d4a574] text-sm"><I d={ICONS.plus} /> 新建预算</button>
+      </header>
+      {total > 0 && (
+        <div className="bg-gradient-to-br from-[#1c1915] to-[#13110e] border border-[#2a2620] rounded-2xl p-6">
+          <div className="flex justify-between items-baseline mb-4">
+            <div><div className="text-xs text-[#807468] uppercase tracking-widest mb-1">本月总预算</div><div className="font-display text-4xl">{fmt(total, cur, hide)}</div></div>
+            <div className="text-right"><div className="text-xs text-[#807468] uppercase tracking-widest mb-1">已支出</div><div className="font-display text-2xl text-[#d47a7a]">{fmt(tspent, cur, hide)}</div></div>
+          </div>
+          <PB percent={(tspent/total)*100} />
+          <div className="flex justify-between text-xs text-[#807468] mt-2 font-mono">
+            <span>已用 {((tspent/total)*100).toFixed(1)}%</span>
+            <span>剩余 {fmt(Math.max(0,total-tspent), cur, hide)}</span>
+          </div>
+        </div>
+      )}
+      <div className="grid grid-cols-2 gap-5">
+        {bws.length===0 ? <div className="col-span-2 bg-[#13110e] border border-[#2a2620] rounded-2xl py-16 text-center text-[#807468]">点击右上角创建预算</div> :
+          bws.map(b => {
+            const c = data.categories.find(x=>x.id===b.category_id);
+            const over = b.percent > 100;
+            return (
+              <div key={b.id} className="group bg-[#13110e] border border-[#2a2620] rounded-2xl p-6 hover:border-[#3a352e]">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{background:`${c?.color}20`, color:c?.color}}><I d={ICONS.wallet} /></div>
+                    <div><div className="font-display text-lg">{c?.name}</div><div className="text-[10px] text-[#807468] uppercase tracking-wider">月度预算</div></div>
+                  </div>
+                  <div className="opacity-0 group-hover:opacity-100 flex gap-1">
+                    <button onClick={()=>{setEdit(b);setShow(true);}} className="p-1.5 rounded-md hover:bg-[#252118] text-[#a89c8e]"><I d={ICONS.edit} c="w-3.5 h-3.5" /></button>
+                    <button onClick={()=>ops.delBudget(b.id)} className="p-1.5 rounded-md hover:bg-[#252118] text-[#d47a7a]"><I d={ICONS.trash} c="w-3.5 h-3.5" /></button>
+                  </div>
+                </div>
+                <div className="flex items-baseline justify-between mb-2">
+                  <span className="font-mono text-sm"><span className={over?"text-[#d47a7a]":""}>{fmt(b.spent, cur, hide)}</span><span className="text-[#807468]"> / {fmt(b.amount, cur, hide)}</span></span>
+                  <span className={`text-xs font-mono ${over?"text-[#d47a7a]":"text-[#807468]"}`}>{b.percent.toFixed(0)}%</span>
+                </div>
+                <PB percent={Math.min(100,b.percent)} color={over?"#d47a7a":c?.color} />
+                {over ? <div className="text-xs text-[#d47a7a] mt-2 flex items-center gap-1"><I d={ICONS.alert} c="w-3 h-3" /> 超支 {fmt(b.spent-b.amount, cur, hide)}</div> :
+                  <div className="text-xs text-[#807468] mt-2">剩余 {fmt(b.remaining, cur, hide)}</div>}
+              </div>
+            );
+          })
+        }
+      </div>
+      {show && <BudgetForm data={data} ops={ops} editing={edit} onClose={()=>{setShow(false);setEdit(null);}} />}
+    </div>
+  );
+}
+
+function PB({ percent, color="#d4a574" }) {
+  return <div className="h-2 bg-[#1c1915] rounded-full overflow-hidden"><div className="h-full rounded-full transition-all duration-500" style={{width:`${Math.min(100,percent)}%`, background: percent>100?"#d47a7a":color}} /></div>;
+}
+
+function BudgetForm({ data, ops, editing, onClose }) {
+  const expCats = data.categories.filter(c=>c.type==="expense");
+  const used = new Set(data.budgets.filter(b=>!editing||b.id!==editing.id).map(b=>b.category_id));
+  const avail = expCats.filter(c=>!used.has(c.id));
+  const [catId, setCatId] = useState(editing?.category_id || avail[0]?.id || "");
+  const [amount, setAmount] = useState(editing?.amount?.toString() || "");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    const amt = parseFloat(amount);
+    if (!amt||amt<=0) return alert("请输入有效金额");
+    if (!catId) return alert("请选择分类");
+    setBusy(true);
+    const b = { category_id:catId, amount:amt, period:"monthly" };
+    if (editing) await ops.updateBudget(editing.id, b); else await ops.addBudget(b);
+    setBusy(false); onClose();
+  };
+
+  return (
+    <Modal onClose={onClose} title={editing?"编辑预算":"新建预算"}>
+      <Field label="分类"><Sel value={catId} onChange={setCatId} opts={(editing?expCats:avail).map(c=>({v:c.id,l:c.name}))} /></Field>
+      <Field label="月度预算金额"><input type="number" step="0.01" value={amount} onChange={e=>setAmount(e.target.value)} autoFocus placeholder="0.00" className="w-full px-3 py-2 bg-[#1c1915] border border-[#2a2620] rounded-lg font-mono text-sm focus:outline-none focus:border-[#d4a574]/50" /></Field>
+      <Actions onClose={onClose} onSubmit={submit} busy={busy} />
+    </Modal>
+  );
+}
+
+function Analytics({ data, cur, hide }) {
+  const yearTrend = useMemo(() => {
+    const arr = []; const now = new Date();
+    for (let i=11; i>=0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth()-i, 1);
+      const k = d.toISOString().slice(0,7);
+      const t = data.transactions.filter(x=>monthOf(x.date)===k);
+      arr.push({
+        month: `${d.getMonth()+1}月`,
+        income: t.filter(x=>x.type==="income").reduce((s,x)=>s+Number(x.amount),0),
+        expense: t.filter(x=>x.type==="expense").reduce((s,x)=>s+Number(x.amount),0),
+      });
+    }
+    return arr;
+  }, [data.transactions]);
+
+  const catSpend = useMemo(() => {
+    const m = {};
+    data.transactions.filter(t=>t.type==="expense").forEach(t => {
+      const c = data.categories.find(x=>x.id===t.category_id);
+      if (!c) return;
+      m[c.id] = (m[c.id]||0)+Number(t.amount);
+    });
+    return Object.entries(m).map(([id,v]) => {
+      const c = data.categories.find(x=>x.id===id);
+      return { name:c?.name||"未知", value:v, color:c?.color||"#888" };
+    }).sort((a,b)=>b.value-a.value);
+  }, [data.transactions, data.categories]);
+
+  const weekday = useMemo(() => {
+    const ds = ["日","一","二","三","四","五","六"];
+    const c = ds.map(d=>({ day:d, value:0 }));
+    data.transactions.filter(t=>t.type==="expense").forEach(t => { c[new Date(t.date).getDay()].value += Number(t.amount); });
+    return c;
+  }, [data.transactions]);
+
+  return (
+    <div className="space-y-6 animate-fade-in">
+      <header><div className="text-xs text-[#807468] uppercase tracking-[0.25em] mb-2">Analytics</div><h1 className="font-display text-5xl">数据分析</h1></header>
+      <div className="bg-[#13110e] border border-[#2a2620] rounded-2xl p-6">
+        <h3 className="font-display text-xl mb-1">年度收支趋势</h3>
+        <div className="text-xs text-[#807468] mb-6">最近 12 个月</div>
+        <MyAreaChart data={yearTrend} height={280} />
+      </div>
+      <div className="grid grid-cols-2 gap-5">
+        <div className="bg-[#13110e] border border-[#2a2620] rounded-2xl p-6">
+          <h3 className="font-display text-xl mb-4">支出分类</h3>
+          {catSpend.length===0 ? <div className="h-[280px] flex items-center justify-center text-sm text-[#807468]">暂无数据</div> : (
+            <>
+              <div className="flex justify-center mb-3"><MyPieChart data={catSpend} size={200} /></div>
+              <div className="space-y-1.5">{catSpend.slice(0,5).map((c,i) => (
+                <div key={i} className="flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full" style={{background:c.color}} /><span className="text-[#a89c8e]">{c.name}</span></div>
+                  <span className="font-mono">{fmt(c.value, cur, hide)}</span>
+                </div>
+              ))}</div>
+            </>
+          )}
+        </div>
+        <div className="bg-[#13110e] border border-[#2a2620] rounded-2xl p-6">
+          <h3 className="font-display text-xl mb-4">每周消费规律</h3>
+          <MyBarChart data={weekday} height={280} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SettingsView({ data, ops, session }) {
+  const exportCSV = () => {
+    const headers = ["日期","类型","金额","分类","账户","备注"];
+    const rows = data.transactions.map(tx => {
+      const c = data.categories.find(x=>x.id===tx.category_id);
+      const a = data.accounts.find(x=>x.id===tx.account_id);
+      const fa = data.accounts.find(x=>x.id===tx.from_account_id);
+      const ta = data.accounts.find(x=>x.id===tx.to_account_id);
+      const t = tx.type==="income"?"收入":tx.type==="expense"?"支出":"转账";
+      return [tx.date, t, tx.amount, c?.name||"", tx.type==="transfer"?`${fa?.name}→${ta?.name}`:(a?.name||""), tx.description||""].map(v=>`"${String(v).replace(/"/g,'""')}"`).join(",");
+    });
+    const csv = "\ufeff" + [headers.join(","), ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = `transactions-${today()}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="space-y-6 animate-fade-in max-w-3xl">
+      <header><div className="text-xs text-[#807468] uppercase tracking-[0.25em] mb-2">Settings</div><h1 className="font-display text-5xl">设置</h1></header>
+      <div className="bg-[#13110e] border border-[#2a2620] rounded-2xl">
+        <div className="px-6 py-4 border-b border-[#2a2620] text-xs uppercase tracking-widest text-[#807468]">账户信息</div>
+        <div className="p-6 space-y-4">
+          <Row label="邮箱" value={session.user.email} />
+          <Row label="昵称">
+            <input defaultValue={data.profile.display_name||""} onBlur={e => ops.updateProfile({ display_name: e.target.value })}
+              className="bg-[#1c1915] border border-[#2a2620] rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-[#d4a574]/50" />
+          </Row>
+          <Row label="货币">
+            <Sel value={data.profile.currency||"CNY"} onChange={v=>ops.updateProfile({currency:v})} opts={Object.keys(CURRENCIES).map(k=>({v:k,l:`${CURRENCIES[k].s} ${k}`}))} />
+          </Row>
+        </div>
+      </div>
+      <div className="bg-[#13110e] border border-[#2a2620] rounded-2xl">
+        <div className="px-6 py-4 border-b border-[#2a2620] text-xs uppercase tracking-widest text-[#807468]">数据</div>
+        <div className="p-6 space-y-4">
+          <Row label="导出 CSV" desc="导出所有交易记录到 Excel"><button onClick={exportCSV} className="px-4 py-2 rounded-lg bg-[#1c1915] hover:bg-[#252118] text-sm">导出</button></Row>
+          <Row label="数据概览" desc={`${data.transactions.length} 条交易 · ${data.accounts.length} 个账户 · ${data.budgets.length} 个预算`}><></></Row>
+        </div>
+      </div>
+      <div className="text-center text-xs text-[#807468] py-8">数据云端加密存储 · 仅你本人可见</div>
+    </div>
+  );
+}
+
+function Row({ label, value, desc, children }) {
+  return <div className="flex items-center justify-between">
+    <div><div className="text-sm">{label}</div>{desc && <div className="text-xs text-[#807468] mt-0.5">{desc}</div>}</div>
+    <div>{children || <span className="text-sm text-[#a89c8e]">{value}</span>}</div>
+  </div>;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
